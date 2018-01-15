@@ -70,19 +70,19 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 
 void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::vector<LandmarkObs>& observations)
 {
-	for (std::vector<LandmarkObs>::iterator observations_iterator = observations.begin();observations_iterator != observations.end();++observations_iterator)
+	for (int i = 0; i < observations.size(); i++)
 	{
-		LandmarkObs observation = *observations_iterator;
-		LandmarkObs matching_prediction = predicted[0];
-		double minimum_distance = dist(matching_prediction.x, matching_prediction.y, observation.x, observation.y);
-		for (std::vector<LandmarkObs>::iterator predicted_iterator = predicted.begin();predicted_iterator != predicted.end();++predicted_iterator)
+		LandmarkObs obs = observations[i];
+		double minimum_distance = dist(predicted[0].x, predicted[0].y, obs.x, obs.y);
+
+		for (auto pred: predicted)
 		{
-			LandmarkObs prediction = *predicted_iterator;
-			double observed_distance = dist(prediction.x, prediction.y, observation.x, observation.y);
+			double observed_distance = dist(pred.x, pred.y, obs.x, obs.y);
+
 			if (observed_distance <= minimum_distance)
 			{
 				minimum_distance = observed_distance;
-				observations_iterator->id = prediction.id;
+				observations[i].id = pred.id;
 			}
 		}
 	}
@@ -91,6 +91,11 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
 		const std::vector<LandmarkObs> &observations, const Map &map_landmarks)
 {
+	double sigx = std_landmark[0];
+	double sigy = std_landmark[1];
+	double gauss_const = (1. / (2. * M_PI * sigx * sigy));
+	double sigx2 = 2 * pow(sigx, 2);
+	double sigy2 = 2 * pow(sigy, 2);
 
 	for (int i = 0; i < num_particles; i++)
 	{
@@ -99,19 +104,11 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 		std::vector<LandmarkObs> map_obs = std::vector<LandmarkObs>();
 		for (int j = 0; j < observations.size(); j++)
 		{
-			LandmarkObs observation = observations[j];
-
-			double x_map = particle.x + (cos(particle.theta) * observation.x) - (sin(particle.theta) * observation.y);
-			double y_map = particle.y + (sin(particle.theta) * observation.x) + (cos(particle.theta) * observation.y);
-
-			LandmarkObs map_coordinate_observation = {
-				observation.id,
-				x_map,
-				y_map
-			};
-
-			map_obs.push_back(map_coordinate_observation);
-
+			LandmarkObs map_obs_trans;
+			map_obs_trans.id = observations[j].id;
+			map_obs_trans.x = particle.x + (cos(particle.theta) * observations[j].x) - (sin(particle.theta) * observations[j].y);
+			map_obs_trans.y = particle.y + (sin(particle.theta) * observations[j].x) + (cos(particle.theta) * observations[j].y);
+			map_obs.push_back(map_obs_trans);
 		}
 		
 		std::vector<LandmarkObs> predicted;
@@ -128,36 +125,29 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 			}
 		}
 
-		dataAssociation(predicted, map_observations);
+		dataAssociation(predicted, map_obs);
 
-		double new_weight = 1;
-		for (std::vector<LandmarkObs>::iterator map_observations_iterator = map_observations.begin();map_observations_iterator != map_observations.end();++map_observations_iterator)
+		double proba = 1;
+		for (auto obs: map_obs)
 		{
-			LandmarkObs observation = *map_observations_iterator;
-			double sigma_x = std_landmark[0];
-			double sigma_y = std_landmark[1];
-			double x = observation.x;
-			double y = observation.y;
+			double x = obs.x;
+			double y = obs.y;
+			LandmarkObs pred;
 
-			LandmarkObs prediction;
-			for (std::vector<LandmarkObs>::iterator predicted_observations_iterator = predicted.begin();predicted_observations_iterator != predicted.end();++predicted_observations_iterator)
+			for (int k = 0; k < predicted.size(); k++)
 			{
-				LandmarkObs p = *predicted_observations_iterator;
-				if (p.id == observation.id)
+				if (predicted[k].id == obs.id)
 				{
-					prediction = p;
+					pred = predicted[k];
 					break;
 				}
 			}
-
-			double mu_x = prediction.x;
-			double mu_y = prediction.y;
-
-			double landmark_probability = (1. / (2. * M_PI * sigma_x * sigma_y)) * exp(-(pow(x - mu_x, 2) / (2 * pow(sigma_x, 2)) + (pow(y - mu_y, 2) / (2 * pow(sigma_y, 2)))));
-			new_weight *= landmark_probability;
+			double mu_x = pred.x;
+			double mu_y = pred.y;
+			proba *= gauss_const * exp(-(pow(x - mu_x, 2) / sigx2 + (pow(y - mu_y, 2) / sigy2)));
 		}
-		weights[i] = new_weight;
-		particles[i].weight = new_weight;
+		weights[i] = proba;
+		particles[i].weight = proba;
 	}
 }
 
